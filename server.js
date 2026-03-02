@@ -10,26 +10,36 @@ const CORS_HEADERS = {
   'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
+// Health check ABOVE the proxy so it's not forwarded
+app.get('/health', (_, res) => res.send('ok'));
+
 // Handle preflight
 app.options('*', (req, res) => {
   Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
   res.sendStatus(204);
 });
 
-// Proxy ALL paths -- no path matching, no rewriting
-// This ensures /functions/v1/vedh-chat → TARGET/functions/v1/vedh-chat exactly
-app.use('/', createProxyMiddleware({
+// Debug: log every request before proxying
+app.use((req, res, next) => {
+  console.log(`[PROXY] ${req.method} ${req.originalUrl}`);
+  next();
+});
+
+// Proxy ALL paths with NO path rewriting
+app.use(createProxyMiddleware({
   target: TARGET,
   changeOrigin: true,
-  logLevel: 'debug',
+  onProxyReq(proxyReq, req) {
+    // Force the exact original path
+    proxyReq.path = req.originalUrl;
+    console.log(`[PROXY] Forwarding to: ${TARGET}${proxyReq.path}`);
+  },
   onProxyRes(proxyRes) {
     Object.entries(CORS_HEADERS).forEach(([k, v]) => {
       proxyRes.headers[k] = v;
     });
   },
 }));
-
-app.get('/health', (_, res) => res.send('ok'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Proxy listening on ${PORT}`));
